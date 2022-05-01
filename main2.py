@@ -16,7 +16,7 @@ class Network(nn.Module):
         # Inputs to hidden layer linear transformation
         self.hidden = nn.Linear(input_size, 40)
         # Output layer, 36 units - one for each POS
-        self.output = nn.Linear(40, 36)
+        self.output = nn.Linear(40, 45)
         self.tanh = nn.Tanh()
         self.softmax = nn.Softmax(dim=0)
 
@@ -35,13 +35,12 @@ def train(_train_loader, model, optimizer):
     model.train()
     train_loss = 0
     train_correct = 0
+    criterion = nn.CrossEntropyLoss()
     for batch_idx, (_data, _labels) in enumerate(_train_loader):
         optimizer.zero_grad()
         output = model(_data)
-        print("output is: ", type(output), output.shape)
-        loss = F.nll_loss(output, _labels)
-        criterion = nn.CrossEntropyLoss()
-        train_loss += criterion(output, _labels)
+        loss = criterion(output, _labels)
+        train_loss += criterion(output, _labels).item()
         # train_loss += F.nll_loss(output, _labels, size_average=False).item()
         pred = output.max(1, keepdim=True)[1]  # get the index of the max log-probability
         train_correct += pred.eq(_labels.view_as(pred)).cpu().sum().item()
@@ -60,6 +59,7 @@ def part_one(train_x, train_y):
 
     train_x = torch.from_numpy(np.array(train_x)).float()
     train_y = torch.from_numpy(np.array(train_y)).long()
+    print("shape of data train_x: ", train_x.shape, "shape of data train_y : ", train_y.shape)
     dataset = TensorDataset(train_x, train_y)
     # train_set, validate_set = torch.utils.data.random_split(dataset, [44000, 11000])
     train_loader = DataLoader(dataset, batch_size=128, shuffle=True)
@@ -67,7 +67,7 @@ def part_one(train_x, train_y):
     # step 2: prepare model
     model = Network(input_size=250)
     lr = 0.2
-    optimizer = optim.SGD(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
 
     # step 3: train
     loss_train_list = []
@@ -75,6 +75,7 @@ def part_one(train_x, train_y):
     for e in range(1, 10 + 1):
         print("epoch number {} ".format(e))
         l_t, a_t = train(train_loader, model, optimizer)
+        print("accuracy is: ", a_t, "loss is: ", l_t)
         loss_train_list.append(l_t)
         accuracy_train_list.append(a_t)
 
@@ -227,5 +228,6 @@ Questions to self:
     7. along what axis to concatenate 
     8. move sentences extension to new part- general refractor , do when have time. write code logic down
     9. number of empty sentences 37832- remove this part in read_file_to_list
+    10. how to handle words which are in dev and not in train?
 
 """
