@@ -147,7 +147,7 @@ def read_file_to_list(train_file):
     return vocab_with_special_characters, pos_vocab, sentence_split_with_header_and_finish, sentences_label, sentences_no_tag
 
 
-def get_embedding_matrix_part_one(embedded_matrix, vocab_index, sentence):
+def get_embedding_sentence(embedded_matrix, vocab_index, sentence):
     """
     Returns embedded sentence in 5-gram fashion
     """
@@ -161,19 +161,6 @@ def get_embedding_matrix_part_one(embedded_matrix, vocab_index, sentence):
                sentence_vectors[i + 2]] for i, word in enumerate(sentence_vectors[2:-2], start=2)]
     ngrams_concentrate = [np.concatenate(five_gram) for five_gram in ngrams]
     return ngrams_concentrate
-
-
-def read_tags():
-    """
-    Function to create tags from pos_tags file
-    :return:
-    """
-    with open("pos_tags.txt", 'r') as f:
-        lines = f.readlines()
-
-    tags = [i.split('.\t')[1].split('\t')[0] for i in lines]
-    return tags
-
 
 
 if __name__ == '__main__':
@@ -190,9 +177,7 @@ if __name__ == '__main__':
     # glue together all the sentences
     run_on_sentence = []
     for sentence in sentences_extended:
-        x = get_embedding_matrix_part_one(embedded_matrix=embedding_matrix, vocab_index=embedding_dict,
-                                          sentence=sentence)
-        run_on_sentence.extend(x)
+        run_on_sentence.extend(sentence)
     run_on_label = []
     for label in labels:
         run_on_label.extend(label)
@@ -207,7 +192,7 @@ if __name__ == '__main__':
         labels_numbered.append(label_dict[label])
 
     # train
-    part_one(run_on_sentence, labels_numbered)
+    # part_one(run_on_sentence, labels_numbered)
 
 
 
