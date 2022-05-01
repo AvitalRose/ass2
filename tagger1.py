@@ -200,9 +200,10 @@ if __name__ == "__main__":
 To do:
 * batches and tensors instead of vectors, drop out, experiment with optimizers and hyper parameters
 * dev data and test data
-* check on NER
+* check on NER- add proper accuracy check for it
 * what to do with words not in train? right now it is getting the first row always. is dict.get(k) slower than dict[k]? 
 * add test and write to file
 * answer questions for part 1- first thing tomorrow morning
 * add sentence spaces in correct place
+* add documentation 
 """
