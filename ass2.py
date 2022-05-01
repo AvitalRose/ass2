@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
 
 CONTEXT_SIZE = 5
 EMBEDDING_DIM = 50
@@ -12,7 +13,7 @@ class NGramLanguageModeler(nn.Module):
 
     def __init__(self, vocab_size, embedding_dim, context_size, tags_size):
         super(NGramLanguageModeler, self).__init__()
-        self.embeddings = nn.Embedding(vocab_size, embedding_dim)
+        self.embeddings = nn.Embedding(vocab_size + 1, embedding_dim)
         self.linear1 = nn.Linear(context_size * embedding_dim, 128)
         self.linear2 = nn.Linear(128, tags_size)
 
@@ -24,48 +25,53 @@ class NGramLanguageModeler(nn.Module):
         return log_probs
 
 
-def train(vocab, ngrams, word_to_ix, label_to_index):
-    losses = []
-    accuracies = []
-    loss_function = nn.NLLLoss()
-    model = NGramLanguageModeler(len(vocab), EMBEDDING_DIM, CONTEXT_SIZE, len(label_to_index.keys()))
-    optimizer = optim.SGD(model.parameters(), lr=0.001)
+def train(_model, _optimizer, _loss_function, vocab, ngrams, word_to_ix, label_to_index):
+    total_loss = 0
+    train_correct = 0
+    for context, target in five_grams:
+        # Step 1. Prepare the inputs to be passed to the model (i.e, turn the words
+        # into integer indices and wrap them in tensors)
+        context_idxs = torch.tensor([word_to_ix.get(w, 0) for w in context], dtype=torch.long)
 
-    for epoch in range(10):
-        print("epoch is: {}".format(epoch))
-        total_loss = 0
-        train_correct = 0
-        for context, target in ngrams:
-            # Step 1. Prepare the inputs to be passed to the model (i.e, turn the words
-            # into integer indices and wrap them in tensors)
-            context_idxs = torch.tensor([word_to_ix[w] for w in context], dtype=torch.long)
+        # Step 2. Recall that torch *accumulates* gradients. Before passing in a
+        # new instance, you need to zero out the gradients from the old
+        # instance
+        _model.zero_grad()
 
-            # Step 2. Recall that torch *accumulates* gradients. Before passing in a
-            # new instance, you need to zero out the gradients from the old
-            # instance
-            model.zero_grad()
+        # Step 3. Run the forward pass, getting log probabilities over next
+        # words
+        log_probs = _model(context_idxs)
 
-            # Step 3. Run the forward pass, getting log probabilities over next
-            # words
-            log_probs = model(context_idxs)
+        # Step 4. Compute your loss function. (Again, Torch wants the target
+        # word wrapped in a tensor)
+        loss = _loss_function(log_probs, torch.tensor([label_to_index[target]], dtype=torch.long))
 
-            # Step 4. Compute your loss function. (Again, Torch wants the target
-            # word wrapped in a tensor)
-            loss = loss_function(log_probs, torch.tensor([label_to_index[target]], dtype=torch.long))
+        # Step 5. Do the backward pass and update the gradient
+        loss.backward()
+        _optimizer.step()
+        # Get the Python number from a 1-element Tensor by calling tensor.item()
+        total_loss += loss.item()
+        pred = log_probs.max(1, keepdim=True)[1]  # get the index of the max log-probability
+        if pred.item() == label_to_index[target]:
+            train_correct += 1
+    return total_loss, 100 * train_correct / len(ngrams)
 
-            # Step 5. Do the backward pass and update the gradient
-            loss.backward()
-            optimizer.step()
+def validate(_model, _loss_function, valid_ngrams, label_to_index):
+    """
 
-            # Get the Python number from a 1-element Tensor by calling tensor.item()
-            total_loss += loss.item()
-            pred = log_probs.max(1, keepdim=True)[1]  # get the index of the max log-probability
-            if pred.item() == label_to_index[target]:
-                train_correct += 1
-        print("accuracy is: ", 100 * train_correct / len(ngrams))
-        losses.append(total_loss)
-        accuracies.append(100 * train_correct / len(ngrams))
-    print(losses, accuracies)  # The loss decreased every iteration over the training data!
+    :return:
+    """
+    valid_loss = 0
+    valid_correct = 0
+    for context, target in valid_ngrams:
+        context_idxs = torch.tensor([word_to_ix.get(w, 0) for w in context], dtype=torch.long)
+        log_probs = _model(context_idxs)
+        loss = _loss_function(log_probs, torch.tensor([label_to_index[target]], dtype=torch.long))
+        valid_loss += loss.item()
+        pred = log_probs.max(1, keepdim=True)[1]  # get the index of the max log-probability
+        if pred.item() == label_to_index[target]:
+            valid_correct += 1
+    return valid_loss, 100 * valid_correct / len(valid_ngrams)
 
 
 def transform_data_to_ngrams(file_name):
@@ -130,9 +136,10 @@ def transform_data_to_ngrams(file_name):
 if __name__ == "__main__":
     # prepare data
     five_grams, vocab, pos_tags = transform_data_to_ngrams("pos/train")
+    five_grams_valid, vocab_valid, pos_tags_valid = transform_data_to_ngrams("pos/dev")
 
     # make word to index dictionary
-    word_to_ix = {word: i for i, word in enumerate(vocab)}
+    word_to_ix = {word: i for i, word in enumerate(vocab, start=1)}
 
     # make label to dictionary loss
     label_to_ix = {label: i for i, label in enumerate(pos_tags)}
@@ -141,14 +148,55 @@ if __name__ == "__main__":
     train_loader = DataLoader(five_grams, batch_size=128, shuffle=True)
 
     print("train loader is: ", train_loader)
-    five_grams = five_grams[0:50000]
+    five_grams = five_grams[0:5000]
+    five_grams_valid = five_grams_valid[0:100]
     print("length of five grams is: ", len(five_grams), five_grams[0])
+    print("length of five grams valid is :", len(five_grams_valid), five_grams_valid[0])
     # train
-    train(vocab, five_grams, word_to_ix, label_to_ix)
+    losses = []
+    accuracies = []
+    losses_valid = []
+    accuracies_valid =[]
+    lr = 0.001
+    loss_function = nn.NLLLoss()
+    model = NGramLanguageModeler(len(vocab), EMBEDDING_DIM, CONTEXT_SIZE, len(label_to_ix.keys()))
+    optimizer = optim.SGD(model.parameters(), lr=lr)
 
+    for epoch in range(5):
+        print("epoch is: {}".format(epoch))
+        total_loss = 0
+        train_correct = 0
+        loss_t, accuracy_t = train(model, optimizer, loss_function, vocab, five_grams, word_to_ix, label_to_ix)
+        losses.append(loss_t)
+        accuracies.append(accuracy_t)
+        loss_v, accuracy_v = validate(model, loss_function, five_grams_valid, label_to_ix)
+        losses_valid.append(loss_v)
+        accuracies_valid.append(accuracy_v)
+
+    print("accuracies are:", accuracies, "validation accuracies: ", accuracies_valid)
+
+    plt.plot(losses, label="train")
+    plt.plot(losses_valid, label="validation")
+    plt.xlabel("epochs")
+    plt.ylabel("loss")
+    plt.title("Loss according to epochs, learning rate = {}".format(lr))
+    plt.legend()
+    plt.show()
+
+    plt.plot(accuracies, label="train")
+    plt.plot(accuracies_valid, label="validation")
+    plt.xlabel("epochs")
+    plt.ylabel("accuracy")
+    plt.title("Accuracy according to epochs, learning rate = {}".format(lr))
+    plt.legend()
+    plt.show()
 
 """
 To do:
-* batches and tensors instead of vectors, drop out, expirement with optimizers and hyper parameters
+* batches and tensors instead of vectors, drop out, experiment with optimizers and hyper parameters
 * dev data and test data
+* check on NER
+* what to do with words not in train? right now it is getting the first row always. is dict.get(k) slower than dict[k]? 
+* add test and write to file
+* answer questions for part 1- first thing tomorrow morning
 """
