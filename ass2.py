@@ -32,11 +32,10 @@ def train(vocab, ngrams, word_to_ix, label_to_index):
     optimizer = optim.SGD(model.parameters(), lr=0.001)
 
     for epoch in range(10):
+        print("epoch is: {}".format(epoch))
         total_loss = 0
-        cnt = 0
+        train_correct = 0
         for context, target in ngrams:
-            print("now", cnt)
-            cnt +=1
             # Step 1. Prepare the inputs to be passed to the model (i.e, turn the words
             # into integer indices and wrap them in tensors)
             context_idxs = torch.tensor([word_to_ix[w] for w in context], dtype=torch.long)
@@ -60,9 +59,13 @@ def train(vocab, ngrams, word_to_ix, label_to_index):
 
             # Get the Python number from a 1-element Tensor by calling tensor.item()
             total_loss += loss.item()
-            pred = log_probs.max(1, keepdim=True)[1]  # get the index of the max log-probabilit
+            pred = log_probs.max(1, keepdim=True)[1]  # get the index of the max log-probability
+            if pred.item() == label_to_index[target]:
+                train_correct += 1
+        print("accuracy is: ", 100 * train_correct / len(ngrams))
         losses.append(total_loss)
-    print(losses)  # The loss decreased every iteration over the training data!
+        accuracies.append(100 * train_correct / len(ngrams))
+    print(losses, accuracies)  # The loss decreased every iteration over the training data!
 
 
 def transform_data_to_ngrams(file_name):
@@ -134,12 +137,18 @@ if __name__ == "__main__":
     # make label to dictionary loss
     label_to_ix = {label: i for i, label in enumerate(pos_tags)}
 
-    # five_grams = five_grams[0:256]
-    # print("length of five grams is: ", len(five_grams), five_grams[0])
     # load data
-    # train_loader = DataLoader(five_grams, batch_size=128, shuffle=True)
+    train_loader = DataLoader(five_grams, batch_size=128, shuffle=True)
 
-    # print("train loader is: ", train_loader)
-
+    print("train loader is: ", train_loader)
+    five_grams = five_grams[0:50000]
+    print("length of five grams is: ", len(five_grams), five_grams[0])
     # train
     train(vocab, five_grams, word_to_ix, label_to_ix)
+
+
+"""
+To do:
+* batches and tensors instead of vectors, drop out, expirement with optimizers and hyper parameters
+* dev data and test data
+"""
