@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 CONTEXT_SIZE = 5
 EMBEDDING_DIM = 50
-
+BATCH_SIZE = 128
 
 class NGramLanguageModeler(nn.Module):
 
@@ -19,21 +19,32 @@ class NGramLanguageModeler(nn.Module):
         self.linear2 = nn.Linear(128, tags_size)
 
     def forward(self, inputs):
-        embeds = self.embeddings(inputs).view((1, -1))
+        # m = nn.Dropout(p=0.3)
+        embeds = self.embeddings(inputs.t())
+        embeds = embeds.reshape(embeds.shape[0], CONTEXT_SIZE * EMBEDDING_DIM)
         out = F.relu(self.linear1(embeds))
+        # out = m(out)
         out = self.linear2(out)
         log_probs = F.log_softmax(out, dim=1)
         return log_probs
 
 
-def train(_model, _optimizer, _loss_function, vocab, ngrams, word_to_index, label_to_index):
+def train(_model, _optimizer, _loss_function, vocab, ngrams, word_to_index, label_to_index, input_len):
     total_loss = 0
     train_correct = 0
-    for context, target in ngrams:
+    for idx, (context, target) in enumerate(ngrams):
+        # print("idx is {}".format(idx))
         # Step 1. Prepare the inputs to be passed to the model (i.e, turn the words
         # into integer indices and wrap them in tensors)
-        context_idxs = torch.tensor([word_to_index.get(w, 0) for w in context], dtype=torch.long)
+        # context_idxs = torch.tensor([word_to_index.get(w, 0) for w in context], dtype=torch.long)
+        context_idxs = []
+        for tup in context:
+            context_idxs.append(tuple((word_to_index.get(w, 0) for w in tup)))
+        context_idxs = torch.tensor(context_idxs, dtype=torch.long)
 
+        # print(f"{context=}")
+        # print("context idxs length: ", context_idxs)
+        # print("context idxs shape: ", context_idxs.shape)
         # Step 2. Recall that torch *accumulates* gradients. Before passing in a
         # new instance, you need to zero out the gradients from the old
         # instance
@@ -45,20 +56,26 @@ def train(_model, _optimizer, _loss_function, vocab, ngrams, word_to_index, labe
 
         # Step 4. Compute your loss function. (Again, Torch wants the target
         # word wrapped in a tensor)
-        loss = _loss_function(log_probs, torch.tensor([label_to_index[target]], dtype=torch.long))
+        t = tuple((label_to_index[t] for t in target))
+        loss = _loss_function(log_probs, torch.tensor(t, dtype=torch.long))
 
         # Step 5. Do the backward pass and update the gradient
         loss.backward()
         _optimizer.step()
         # Get the Python number from a 1-element Tensor by calling tensor.item()
-        total_loss += loss.item()
+        total_loss += _loss_function(log_probs, torch.tensor(t, dtype=torch.long)).item()
         pred = log_probs.max(1, keepdim=True)[1]  # get the index of the max log-probability
-        if pred.item() == label_to_index[target]:
-            train_correct += 1
-    return total_loss, 100 * train_correct / len(ngrams)
+        train_correct += pred.eq(torch.tensor(t, dtype=torch.long).view_as(pred)).cpu().sum().item()
+
+        #from beore
+        # total_loss += loss.item()
+        # pred = log_probs.max(1, keepdim=True)[1]  # get the index of the max log-probability
+        # if pred.item() == label_to_index[target]:
+        #     train_correct += 1
+    return total_loss, (100 * train_correct) / input_len
 
 
-def validate(_model, _loss_function, valid_ngrams, word_to_index, label_to_index):
+def validate(_model, _loss_function, valid_ngrams, word_to_index, label_to_index, input_len):
     """
 
     :return:
@@ -66,14 +83,27 @@ def validate(_model, _loss_function, valid_ngrams, word_to_index, label_to_index
     valid_loss = 0
     valid_correct = 0
     for context, target in valid_ngrams:
-        context_idxs = torch.tensor([word_to_index.get(w, 0) for w in context], dtype=torch.long)
+        # log_probs = _model(context_idxs)
+        # loss = _loss_function(log_probs, torch.tensor([label_to_index[target]], dtype=torch.long))
+        # valid_loss += loss.item()
+        # pred = log_probs.max(1, keepdim=True)[1]  # get the index of the max log-probability
+        # if pred.item() == label_to_index[target]:
+        #     valid_correct += 1
+
+        context_idxs = []
+        for tup in context:
+            context_idxs.append(tuple((word_to_index.get(w, 0) for w in tup)))
+        # print("context id shape: ", context_idxs)
+        context_idxs = torch.tensor(context_idxs, dtype=torch.long)
         log_probs = _model(context_idxs)
-        loss = _loss_function(log_probs, torch.tensor([label_to_index[target]], dtype=torch.long))
-        valid_loss += loss.item()
+        t = tuple((label_to_index[t] for t in target))
+        loss = _loss_function(log_probs, torch.tensor(t, dtype=torch.long))
+        # Get the Python number from a 1-element Tensor by calling tensor.item()
+        valid_loss += _loss_function(log_probs, torch.tensor(t, dtype=torch.long)).item()
         pred = log_probs.max(1, keepdim=True)[1]  # get the index of the max log-probability
-        if pred.item() == label_to_index[target]:
-            valid_correct += 1
-    return valid_loss, 100 * valid_correct / len(valid_ngrams)
+        valid_correct += pred.eq(torch.tensor(t, dtype=torch.long).view_as(pred)).cpu().sum().item()
+
+    return valid_loss, (100 * valid_correct) / input_len
 
 
 def transform_data_to_ngrams(file_name):
@@ -147,29 +177,27 @@ def tagger(task, train_file, valid_file, test_file):
     label_to_ix = {label: i for i, label in enumerate(pos_tags)}
 
     # load data
-    train_loader = DataLoader(five_grams, batch_size=128, shuffle=True)
+    train_loader = DataLoader(five_grams, batch_size=BATCH_SIZE, shuffle=True)
+    valid_loader = DataLoader(five_grams_valid, batch_size=BATCH_SIZE, shuffle=True)
 
-    print("train loader is: ", train_loader)
-    five_grams = five_grams[0:100]
-    five_grams_valid = five_grams_valid[0:100]
-    print("length of five grams is: ", len(five_grams), five_grams[0])
-    print("length of five grams valid is :", len(five_grams_valid), five_grams_valid[0])
+
     # train
     losses = []
     accuracies = []
     losses_valid = []
     accuracies_valid = []
-    lr = 0.001
-    loss_function = nn.NLLLoss()
+    lr = 0.5
+    loss_function = nn.CrossEntropyLoss()
     model = NGramLanguageModeler(len(vocab), EMBEDDING_DIM, CONTEXT_SIZE, len(label_to_ix.keys()))
     optimizer = optim.SGD(model.parameters(), lr=lr)
 
-    for epoch in range(3):
+    for epoch in range(5):
         print("epoch is: {}".format(epoch))
-        loss_t, accuracy_t = train(model, optimizer, loss_function, vocab, five_grams, word_to_ix, label_to_ix)
+        loss_t, accuracy_t = train(model, optimizer, loss_function, vocab, train_loader, word_to_ix, label_to_ix,
+                                   len(five_grams))
         losses.append(loss_t)
         accuracies.append(accuracy_t)
-        loss_v, accuracy_v = validate(model, loss_function, five_grams_valid, word_to_ix, label_to_ix)
+        loss_v, accuracy_v = validate(model, loss_function, valid_loader, word_to_ix, label_to_ix, len(five_grams_valid))
         losses_valid.append(loss_v)
         accuracies_valid.append(accuracy_v)
 
@@ -206,4 +234,5 @@ To do:
 * answer questions for part 1- first thing tomorrow morning
 * add sentence spaces in correct place
 * add documentation 
+* should be random vector if no match, not same one at 0
 """
