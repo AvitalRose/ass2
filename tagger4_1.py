@@ -31,29 +31,30 @@ class NGramLanguageModeler(nn.Module):
         # word_embeds = word_embeds.reshape(word_embeds.shape[0], CONTEXT_SIZE * EMBEDDING_DIM)
 
         # char embedding preparation
-        word_one_char_embedding = self.char_embedding(inputs[1][0])
-        word_one_char = torch.flatten(word_one_char_embedding, start_dim=1).unsqueeze(1)
-        word_two_char_embedding = self.char_embedding(inputs[1][1])
-        word_two_char = torch.flatten(word_two_char_embedding, start_dim=1).unsqueeze(1)
-        word_three_char_embedding = self.char_embedding(inputs[1][2])
-        word_three_char = torch.flatten(word_three_char_embedding, start_dim=1).unsqueeze(1)
-        word_four_char_embedding = self.char_embedding(inputs[1][3])
-        word_four_char = torch.flatten(word_four_char_embedding, start_dim=1).unsqueeze(1)
-        word_five_char_embedding = self.char_embedding(inputs[1][4])
-        word_five_char = torch.flatten(word_five_char_embedding, start_dim=1).unsqueeze(1)
-
-        # convolution for char
-        word_one_convolution = torch.flatten(self.max_pool(self.layer1(word_one_char)), start_dim=1)
-        word_two_convolution = torch.flatten(self.max_pool(self.layer1(word_two_char)), start_dim=1)
-        word_three_convolution = torch.flatten(self.max_pool(self.layer1(word_three_char)), start_dim=1)
-        word_four_convolution = torch.flatten(self.max_pool(self.layer1(word_four_char)), start_dim=1)
-        word_five_convolution = torch.flatten(self.max_pool(self.layer1(word_five_char)), start_dim=1)
-
-        # contact words and char
-        words_combined_convolution = torch.stack((word_one_convolution, word_two_convolution, word_three_convolution,
-                                       word_four_convolution, word_five_convolution)).permute(2,1,0)
-        word_embeds = word_embeds.permute(2,0,1)
-        embeds = torch.cat((word_embeds, words_combined_convolution)).permute(1,0,2)
+        char_embedded = self.char_embedding(inputs[1])
+        # word_one_char_embedding = self.char_embedding(inputs[1][0])
+        # word_one_char = torch.flatten(word_one_char_embedding, start_dim=1).unsqueeze(1)
+        # word_two_char_embedding = self.char_embedding(inputs[1][1])
+        # word_two_char = torch.flatten(word_two_char_embedding, start_dim=1).unsqueeze(1)
+        # word_three_char_embedding = self.char_embedding(inputs[1][2])
+        # word_three_char = torch.flatten(word_three_char_embedding, start_dim=1).unsqueeze(1)
+        # word_four_char_embedding = self.char_embedding(inputs[1][3])
+        # word_four_char = torch.flatten(word_four_char_embedding, start_dim=1).unsqueeze(1)
+        # word_five_char_embedding = self.char_embedding(inputs[1][4])
+        # word_five_char = torch.flatten(word_five_char_embedding, start_dim=1).unsqueeze(1)
+        #
+        # # convolution for char
+        # word_one_convolution = torch.flatten(self.max_pool(self.layer1(word_one_char)), start_dim=1)
+        # word_two_convolution = torch.flatten(self.max_pool(self.layer1(word_two_char)), start_dim=1)
+        # word_three_convolution = torch.flatten(self.max_pool(self.layer1(word_three_char)), start_dim=1)
+        # word_four_convolution = torch.flatten(self.max_pool(self.layer1(word_four_char)), start_dim=1)
+        # word_five_convolution = torch.flatten(self.max_pool(self.layer1(word_five_char)), start_dim=1)
+        #
+        # # contact words and char
+        # words_combined_convolution = torch.stack((word_one_convolution, word_two_convolution, word_three_convolution,
+        #                                word_four_convolution, word_five_convolution)).permute(2,1,0)
+        # word_embeds = word_embeds.permute(2,0,1)
+        # embeds = torch.cat((word_embeds, words_combined_convolution)).permute(1,0,2)
         embeds = embeds.reshape(embeds.shape[0], CONTEXT_SIZE * (EMBEDDING_DIM + CHAR_EMBEDDING_DIM))
 
         # next layer
