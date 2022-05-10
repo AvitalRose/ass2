@@ -9,7 +9,7 @@ CONTEXT_SIZE = 5
 EMBEDDING_DIM = 50
 CHAR_EMBEDDING_DIM = 30
 CHAR_VOCAB_SIZE = 68
-BATCH_SIZE = 512
+BATCH_SIZE = 1024
 WORD_FIXED_LENGTH = 20
 
 
@@ -19,36 +19,44 @@ class NGramLanguageModeler(nn.Module):
         super(NGramLanguageModeler, self).__init__()
         self.embeddings = nn.Embedding.from_pretrained(embedding_matrix.float())
         self.char_embedding = nn.Embedding(CHAR_VOCAB_SIZE + 1, CHAR_EMBEDDING_DIM)
-        # self.layer1 = torch.nn.Sequential(
-        #     torch.nn.Conv2d(1, 30, kernel_size=(3,20), stride=1, padding=(2,0)),
-        #     torch.nn.MaxPool2d(kernel_size=(3,3), stride=1))
-        # self.layer1 = torch.nn.Sequential(
-        #     torch.nn.Conv2d(1, 30, kernel_size=(3,3), stride=1),
-        #     torch.nn.MaxPool2d(kernel_size=(3,3), stride=1))
         self.layer1 = torch.nn.Conv1d(1, 30, kernel_size=3, padding=1)
         self.max_pool = torch.nn.MaxPool1d(kernel_size=600, stride=1)
-        self.linear1 = nn.Linear(EMBEDDING_DIM * CONTEXT_SIZE, 128)
+        self.linear1 = nn.Linear((CHAR_EMBEDDING_DIM + EMBEDDING_DIM) * CONTEXT_SIZE, 128)
         self.linear2 = nn.Linear(128, tags_size)
 
     def forward(self, inputs):
         # word embedding
         inputs_words = torch.stack(inputs[0]).t()
-        embeds = self.embeddings(inputs_words)
-        embeds = embeds.reshape(embeds.shape[0], CONTEXT_SIZE * EMBEDDING_DIM)
+        word_embeds = self.embeddings(inputs_words)
+        # word_embeds = word_embeds.reshape(word_embeds.shape[0], CONTEXT_SIZE * EMBEDDING_DIM)
 
-        # char embedding
-        word_one_char = self.char_embedding(inputs[1][0])
-        word_one_char = torch.flatten(word_one_char, start_dim=1).unsqueeze(1)
-        word_two_char = self.embeddings(inputs[1][1])
-        word_three_char = self.embeddings(inputs[1][2])
-        word_four_char = self.embeddings(inputs[1][3])
-        word_five_char = self.embeddings(inputs[1][4])
-        print("word one char dims is: ", word_one_char.shape)
-        word = self.layer1(word_one_char)
-        print("word one conv is: ", word.shape)
-        word = torch.flatten(self.max_pool(word), start_dim=1)
-        print("word one conv is: ", word.shape)
-        return
+        # char embedding preparation
+        word_one_char_embedding = self.char_embedding(inputs[1][0])
+        word_one_char = torch.flatten(word_one_char_embedding, start_dim=1).unsqueeze(1)
+        word_two_char_embedding = self.char_embedding(inputs[1][1])
+        word_two_char = torch.flatten(word_two_char_embedding, start_dim=1).unsqueeze(1)
+        word_three_char_embedding = self.char_embedding(inputs[1][2])
+        word_three_char = torch.flatten(word_three_char_embedding, start_dim=1).unsqueeze(1)
+        word_four_char_embedding = self.char_embedding(inputs[1][3])
+        word_four_char = torch.flatten(word_four_char_embedding, start_dim=1).unsqueeze(1)
+        word_five_char_embedding = self.char_embedding(inputs[1][4])
+        word_five_char = torch.flatten(word_five_char_embedding, start_dim=1).unsqueeze(1)
+
+        # convolution for char
+        word_one_convolution = torch.flatten(self.max_pool(self.layer1(word_one_char)), start_dim=1)
+        word_two_convolution = torch.flatten(self.max_pool(self.layer1(word_two_char)), start_dim=1)
+        word_three_convolution = torch.flatten(self.max_pool(self.layer1(word_three_char)), start_dim=1)
+        word_four_convolution = torch.flatten(self.max_pool(self.layer1(word_four_char)), start_dim=1)
+        word_five_convolution = torch.flatten(self.max_pool(self.layer1(word_five_char)), start_dim=1)
+
+        # contact words and char
+        words_combined_convolution = torch.stack((word_one_convolution, word_two_convolution, word_three_convolution,
+                                       word_four_convolution, word_five_convolution)).permute(2,1,0)
+        word_embeds = word_embeds.permute(2,0,1)
+        embeds = torch.cat((word_embeds, words_combined_convolution)).permute(1,0,2)
+        embeds = embeds.reshape(embeds.shape[0], CONTEXT_SIZE * (EMBEDDING_DIM + CHAR_EMBEDDING_DIM))
+
+        # next layer
         out = F.relu(self.linear1(embeds))
         out = self.linear2(out)
         log_probs = F.log_softmax(out, dim=1)
@@ -223,6 +231,7 @@ def train(_model, _optimizer, _loss_function, dataloader, input_len, task, o_tag
     correct = 0
     total = 0
     for idx, (features, labels) in enumerate(dataloader):
+        print("idx is: ", idx)
         _model.zero_grad()
         log_probs = _model(features)
         loss = _loss_function(log_probs, labels)
@@ -241,18 +250,45 @@ def train(_model, _optimizer, _loss_function, dataloader, input_len, task, o_tag
     return total_loss / input_len, (100 * correct) / total
 
 
+def validate(_model, _optimizer, _loss_function, dataloader, input_len, task, o_tag=None):
+    total_loss = 0
+    correct = 0
+    total = 0
+    _model.eval()
+    for idx, (features, labels) in enumerate(dataloader):
+        print("idx is: ", idx)
+        _model.zero_grad()
+        log_probs = _model(features)
+        total_loss += _loss_function(log_probs, labels).item()
+        _, predicted = torch.max(log_probs.data, 1)
+        if task == "NER":
+            not_o = (labels != o_tag)
+            total += not_o.sum().item()
+            correct += ((predicted == labels) * not_o).sum().item()
+        else:
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    print("total is: ", total, "correct is: ", correct)
+    return total_loss / input_len, (100 * correct) / total
+
+
 if __name__ == "__main__":
     wanted_task = "POS"
     vocabulary, word_vectors = pre_process()
     dataset = NGramsDataset(vocabulary, word_vectors, wanted_task)
     train_loader = DataLoader(dataset=dataset, batch_size=BATCH_SIZE, shuffle=True)
-    model = NGramLanguageModeler(embedding_matrix=word_vectors, tags_size=len(dataset.label_to_ix.keys()))
-    lr = 0.5
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    loss_function = nn.CrossEntropyLoss()
-    for epoch in range(10):
-        print("epoch is: {}".format(epoch))
-        l_train, a_train = train(model, optimizer, loss_function, train_loader, len(train_loader), wanted_task, dataset.o_label)
-        print("l is {} , a is {}: ".format(l_train, a_train))
+    test_loader = DataLoader(dataset=dataset, batch_size=BATCH_SIZE, shuffle=True, train=False)
+    print("test loader : ", test_loader[0])
+    # model = NGramLanguageModeler(embedding_matrix=word_vectors, tags_size=len(dataset.label_to_ix.keys()))
+    # lr = 0.5
+    # optimizer = optim.Adam(model.parameters(), lr=lr)
+    # loss_function = nn.CrossEntropyLoss()
+    # for epoch in range(10):
+    #     print("epoch is: {}".format(epoch))
+    #     l_train, a_train = train(model, optimizer, loss_function, train_loader, len(train_loader), wanted_task,
+    #                              dataset.o_label)
+    #     l_valid, a_valid = train(model, optimizer, loss_function, train_loader, len(train_loader), wanted_task,
+    #                              dataset.o_label)
+    #     print("l is {} , a is {}: ".format(l_train, a_train))
 
 
