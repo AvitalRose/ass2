@@ -4,6 +4,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
 import torch.optim as optim
+import matplotlib.pyplot as plt
 
 CONTEXT_SIZE = 5
 EMBEDDING_DIM = 50
@@ -31,30 +32,29 @@ class NGramLanguageModeler(nn.Module):
         # word_embeds = word_embeds.reshape(word_embeds.shape[0], CONTEXT_SIZE * EMBEDDING_DIM)
 
         # char embedding preparation
-        char_embedded = self.char_embedding(inputs[1])
-        # word_one_char_embedding = self.char_embedding(inputs[1][0])
-        # word_one_char = torch.flatten(word_one_char_embedding, start_dim=1).unsqueeze(1)
-        # word_two_char_embedding = self.char_embedding(inputs[1][1])
-        # word_two_char = torch.flatten(word_two_char_embedding, start_dim=1).unsqueeze(1)
-        # word_three_char_embedding = self.char_embedding(inputs[1][2])
-        # word_three_char = torch.flatten(word_three_char_embedding, start_dim=1).unsqueeze(1)
-        # word_four_char_embedding = self.char_embedding(inputs[1][3])
-        # word_four_char = torch.flatten(word_four_char_embedding, start_dim=1).unsqueeze(1)
-        # word_five_char_embedding = self.char_embedding(inputs[1][4])
-        # word_five_char = torch.flatten(word_five_char_embedding, start_dim=1).unsqueeze(1)
-        #
-        # # convolution for char
-        # word_one_convolution = torch.flatten(self.max_pool(self.layer1(word_one_char)), start_dim=1)
-        # word_two_convolution = torch.flatten(self.max_pool(self.layer1(word_two_char)), start_dim=1)
-        # word_three_convolution = torch.flatten(self.max_pool(self.layer1(word_three_char)), start_dim=1)
-        # word_four_convolution = torch.flatten(self.max_pool(self.layer1(word_four_char)), start_dim=1)
-        # word_five_convolution = torch.flatten(self.max_pool(self.layer1(word_five_char)), start_dim=1)
-        #
-        # # contact words and char
-        # words_combined_convolution = torch.stack((word_one_convolution, word_two_convolution, word_three_convolution,
-        #                                word_four_convolution, word_five_convolution)).permute(2,1,0)
-        # word_embeds = word_embeds.permute(2,0,1)
-        # embeds = torch.cat((word_embeds, words_combined_convolution)).permute(1,0,2)
+        word_one_char_embedding = self.char_embedding(inputs[1][0])
+        word_one_char = torch.flatten(word_one_char_embedding, start_dim=1).unsqueeze(1)
+        word_two_char_embedding = self.char_embedding(inputs[1][1])
+        word_two_char = torch.flatten(word_two_char_embedding, start_dim=1).unsqueeze(1)
+        word_three_char_embedding = self.char_embedding(inputs[1][2])
+        word_three_char = torch.flatten(word_three_char_embedding, start_dim=1).unsqueeze(1)
+        word_four_char_embedding = self.char_embedding(inputs[1][3])
+        word_four_char = torch.flatten(word_four_char_embedding, start_dim=1).unsqueeze(1)
+        word_five_char_embedding = self.char_embedding(inputs[1][4])
+        word_five_char = torch.flatten(word_five_char_embedding, start_dim=1).unsqueeze(1)
+
+        # convolution for char
+        word_one_convolution = torch.flatten(self.max_pool(self.layer1(word_one_char)), start_dim=1)
+        word_two_convolution = torch.flatten(self.max_pool(self.layer1(word_two_char)), start_dim=1)
+        word_three_convolution = torch.flatten(self.max_pool(self.layer1(word_three_char)), start_dim=1)
+        word_four_convolution = torch.flatten(self.max_pool(self.layer1(word_four_char)), start_dim=1)
+        word_five_convolution = torch.flatten(self.max_pool(self.layer1(word_five_char)), start_dim=1)
+
+        # contact words and char
+        words_combined_convolution = torch.stack((word_one_convolution, word_two_convolution, word_three_convolution,
+                                                  word_four_convolution, word_five_convolution)).permute(2, 1, 0)
+        word_embeds = word_embeds.permute(2, 0, 1)
+        embeds = torch.cat((word_embeds, words_combined_convolution)).permute(1, 0, 2)
         embeds = embeds.reshape(embeds.shape[0], CONTEXT_SIZE * (EMBEDDING_DIM + CHAR_EMBEDDING_DIM))
 
         # next layer
@@ -65,44 +65,66 @@ class NGramLanguageModeler(nn.Module):
 
 
 class NGramsDataset(Dataset):
-    def __init__(self, vocabulary, word_vectors, task="POS", train=True, valid=False, test=False):
+    def __init__(self, vocabulary, word_vectors, task="POS", stage="train", word_to_ix=None, label_to_ix=None,
+                 ix_to_label=None, char_to_ix=None):
+        self.stage = stage
         if task == "POS":
-            train_file = "pos/train"
-            valid_file = "pos/dev"
-            test_file = "pos/test"
+            if self.stage == "train":
+                file = "pos/train"
+            elif self.stage == "valid":
+                file = "pos/dev"
+            else:
+                file = "pos/test"
         elif task == "NER":
-            train_file = "ner/train"
-            valid_file = "ner/dev"
-            test_file = "ner/test"
+            if self.stage == "train":
+                file = "ner/train"
+            elif self.stage == "valid":
+                file = "ner/dev"
+            else:
+                file = "ner/dev"
 
         # get data from files
-        self.five_grams, self.pos_tags = transform_data_to_ngrams(train_file, False)
-        self.five_grams_valid, self.pos_tags_valid = transform_data_to_ngrams(valid_file, False)
-        self.five_grams_test, self.empty_lines = transform_data_to_ngrams(test_file, True)
+        if self.stage == "train" or self.stage == "valid":
+            self.five_grams, self.pos_tags = transform_data_to_ngrams(file, False)
+        elif self.stage == "test":
+            self.five_grams, self.empty_lines, self.lines = transform_data_to_ngrams(file, True)
 
-        # make word to index dictionary
-        self.word_to_ix = {word: i for i, word in enumerate(vocabulary, start=1)}
+        # make dictionaries
+        if self.stage == "train":
+            # make word to index dictionary
+            self.word_to_ix = {word: i for i, word in enumerate(vocabulary, start=1)}
 
-        # make label to dictionary loss
-        self.label_to_ix = {label: i for i, label in enumerate(self.pos_tags)}
-        self.ix_to_label = {i: label for i, label in enumerate(self.pos_tags)}
+            # make label to dictionary loss
+            self.label_to_ix = {label: i for i, label in enumerate(self.pos_tags)}
+            self.ix_to_label = {i: label for i, label in enumerate(self.pos_tags)}
 
-        # get char data and make vocabulary of characters
-        char_length, list_of_characters = get_char_data()
-        self.char_to_ix = {char: i for i, char in enumerate(list_of_characters, start=1)}
+            # get char data and make vocabulary of characters
+            char_length, list_of_characters = get_char_data()
+            self.char_to_ix = {char: i for i, char in enumerate(list_of_characters, start=1)}
 
-        self.len_of_data = len(self.five_grams)
+        else:
+            self.word_to_ix = word_to_ix
+            self.label_to_ix = label_to_ix
+            self.ix_to_label = ix_to_label
+            self.char_to_ix = char_to_ix
 
         if task == "NER":
             self.o_label = self.label_to_ix["O"]
         else:
             self.o_label = None
 
+        self.len_of_data = len(self.five_grams)
+
     def __getitem__(self, item):
-        x1 = tuple(self.word_to_ix.get(w, 0) for w in self.five_grams[item][0])
-        x2 = tuple(char_to_padded(w, self.char_to_ix) for w in self.five_grams[item][0])
-        y = torch.tensor(self.label_to_ix.get(self.five_grams[item][1]), dtype=torch.long)
-        return (x1, x2), y
+        if self.stage == "train" or self.stage == "valid":
+            x1 = tuple(self.word_to_ix.get(w, 0) for w in self.five_grams[item][0])
+            x2 = tuple(char_to_padded(w, self.char_to_ix) for w in self.five_grams[item][0])
+            y = torch.tensor(self.label_to_ix.get(self.five_grams[item][1]), dtype=torch.long)
+            return (x1, x2), y
+        elif self.stage == "test":
+            x1 = tuple(self.word_to_ix.get(w, 0) for w in self.five_grams[item])
+            x2 = tuple(char_to_padded(w, self.char_to_ix) for w in self.five_grams[item])
+            return x1, x2
 
     def __len__(self):
         return self.len_of_data
@@ -120,7 +142,7 @@ def char_to_padded(char_seq, char_to_index):
     char_seq_idx = [char_to_index.get(c, 0) for c in char_seq]
     char_idx = np.zeros(WORD_FIXED_LENGTH, dtype=np.int64)
     start_id = (WORD_FIXED_LENGTH - len(char_seq)) // 2
-    char_idx[start_id:(start_id+len(char_seq))] = char_seq_idx
+    char_idx[start_id:(start_id + len(char_seq))] = char_seq_idx
     return char_idx
 
 
@@ -200,7 +222,6 @@ def transform_data_to_ngrams(file_name, test=False):
     # remove the end, empty sentences:
     sentences = sentences[:-1]
 
-
     # extract word without tag, add to sentence header and end
     sentences_with_header_and_end = []
     for sentence in sentences:
@@ -224,7 +245,7 @@ def transform_data_to_ngrams(file_name, test=False):
         return zipped_features_and_labels, pos_vocab
 
     if test:
-        return run_on_sentence, empty_spaces
+        return run_on_sentence, empty_spaces, lines_split
 
 
 def train(_model, _optimizer, _loss_function, dataloader, input_len, task, o_tag=None):
@@ -232,7 +253,6 @@ def train(_model, _optimizer, _loss_function, dataloader, input_len, task, o_tag
     correct = 0
     total = 0
     for idx, (features, labels) in enumerate(dataloader):
-        print("idx is: ", idx)
         _model.zero_grad()
         log_probs = _model(features)
         loss = _loss_function(log_probs, labels)
@@ -247,7 +267,6 @@ def train(_model, _optimizer, _loss_function, dataloader, input_len, task, o_tag
         else:
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
-    print("total is: ", total, "correct is: ", correct)
     return total_loss / input_len, (100 * correct) / total
 
 
@@ -257,7 +276,6 @@ def validate(_model, _optimizer, _loss_function, dataloader, input_len, task, o_
     total = 0
     _model.eval()
     for idx, (features, labels) in enumerate(dataloader):
-        print("idx is: ", idx)
         _model.zero_grad()
         log_probs = _model(features)
         total_loss += _loss_function(log_probs, labels).item()
@@ -269,27 +287,91 @@ def validate(_model, _optimizer, _loss_function, dataloader, input_len, task, o_
         else:
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
-    print("total is: ", total, "correct is: ", correct)
     return total_loss / input_len, (100 * correct) / total
+
+
+def predict(_model, _loss_function, dataloader):
+    results = []
+    _model.eval()  # switch layers which act different in train and test, like dropout etc
+    for idx, (features) in enumerate(dataloader):
+        _model.zero_grad()
+        log_probs = _model(features)
+        _, predicted = torch.max(log_probs.data, 1)
+        pred = log_probs.max(1, keepdim=True)[1]
+        results.extend(pred.tolist())
+    return results
 
 
 if __name__ == "__main__":
     wanted_task = "POS"
     vocabulary, word_vectors = pre_process()
-    dataset = NGramsDataset(vocabulary, word_vectors, wanted_task)
+    dataset = NGramsDataset(vocabulary, word_vectors, wanted_task, "train")
+
+    # obtain all dictionaries
+    w_t_i = dataset.word_to_ix
+    l_t_i = dataset.label_to_ix
+    i_t_l = dataset.ix_to_label
+    c_t_i = dataset.char_to_ix
+
+    valid_set = NGramsDataset(vocabulary, word_vectors, wanted_task, "valid", w_t_i, l_t_i, i_t_l, c_t_i)
+    test_set = NGramsDataset(vocabulary, word_vectors, wanted_task, "test", w_t_i, l_t_i, i_t_l, c_t_i)
+
+    # load data
     train_loader = DataLoader(dataset=dataset, batch_size=BATCH_SIZE, shuffle=True)
-    test_loader = DataLoader(dataset=dataset, batch_size=BATCH_SIZE, shuffle=True, train=False)
-    print("test loader : ", test_loader[0])
-    # model = NGramLanguageModeler(embedding_matrix=word_vectors, tags_size=len(dataset.label_to_ix.keys()))
-    # lr = 0.5
-    # optimizer = optim.Adam(model.parameters(), lr=lr)
-    # loss_function = nn.CrossEntropyLoss()
-    # for epoch in range(10):
-    #     print("epoch is: {}".format(epoch))
-    #     l_train, a_train = train(model, optimizer, loss_function, train_loader, len(train_loader), wanted_task,
-    #                              dataset.o_label)
-    #     l_valid, a_valid = train(model, optimizer, loss_function, train_loader, len(train_loader), wanted_task,
-    #                              dataset.o_label)
-    #     print("l is {} , a is {}: ".format(l_train, a_train))
+    valid_loader = DataLoader(dataset=valid_set, batch_size=BATCH_SIZE, shuffle=True)
+    test_loader = DataLoader(dataset=test_set, batch_size=BATCH_SIZE, shuffle=True)
+    model = NGramLanguageModeler(embedding_matrix=word_vectors, tags_size=len(dataset.label_to_ix.keys()))
+    lr = 0.001
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    loss_function = nn.CrossEntropyLoss()
+    accuracies = []
+    losses = []
+    valid_accuracies = []
+    valid_losses = []
+    for epoch in range(5):
+        print("epoch is: {}".format(epoch))
+        l_train, a_train = train(model, optimizer, loss_function, train_loader, len(train_loader), wanted_task,
+                                 dataset.o_label)
+        accuracies.append(a_train)
+        losses.append(l_train)
+        l_valid, a_valid = train(model, optimizer, loss_function, train_loader, len(train_loader), wanted_task,
+                                 dataset.o_label)
+        valid_accuracies.append(a_valid)
+        valid_losses.append(l_valid)
+        print("l is {} , a is {}: ".format(l_train, a_train))
 
+    predictions = predict(_model=model, _loss_function=loss_function, dataloader=test_loader)
 
+    if wanted_task == "POS":
+        results_file_name = "pos_results.txt"
+    else:
+        results_file_name = "ner_results.txt"
+    with open(results_file_name, "w") as f:
+        cnt = 0
+        j = 0
+        for i in range(len(predictions) + len(test_set.empty_lines)):
+            if cnt in test_set.empty_lines:  # to save format
+                f.write("\n")
+            else:
+                f.write(str(test_set.lines[j]) + "\t" + str(dataset.ix_to_label[predictions[j][0]]) + "\n")
+                j += 1
+            cnt += 1
+
+    print("accuracies are:", accuracies, "validation accuracies: ", valid_accuracies)
+    print("loss are: ", losses, "valid losses", valid_losses)
+
+    plt.plot(losses, label="train")
+    plt.plot(valid_losses, label="validation")
+    plt.xlabel("epochs")
+    plt.ylabel("loss")
+    plt.title("{}\nLoss according to epochs, learning rate = {}".format(wanted_task, lr))
+    plt.legend()
+    plt.show()
+
+    plt.plot(accuracies, label="train")
+    plt.plot(valid_accuracies, label="validation")
+    plt.xlabel("epochs")
+    plt.ylabel("accuracy")
+    plt.title("{}\nAccuracy according to epochs, learning rate = {}".format(wanted_task, lr))
+    plt.legend()
+    plt.show()
